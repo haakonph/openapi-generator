@@ -525,6 +525,33 @@ public class SpringCodegenTest {
     }
 
     @Test
+    public void shouldSkipUuidSizeValidation() throws IOException {
+        final SpringCodegen codegen = new SpringCodegen();
+        codegen.setInterfaceOnly(true);
+        codegen.setDelegatePattern(true);
+        final Map<String, File> files = generateFiles(codegen, "src/test/resources/3_0/issue_9256.yaml");
+
+        final File api = files.get("RecordsApi.java");
+        assertFileContains(api.toPath(), "@PathVariable(\"id\") UUID id");
+        assertFileNotContains(api.toPath(), "@Size(");
+
+        final File model = files.get("Record.java");
+        assertFileContains(model.toPath(), "@NotNull", "public UUID getId()",
+                "@Size(min=1,max=20)", "@Size(min=2)", "List<UUID> getRelatedIds()");
+        assertFileNotContains(model.toPath(), "@Size(min=36)");
+    }
+
+    @Test
+    public void shouldValidateUuidLengthWhenMappedToString() throws IOException {
+        final SpringCodegen codegen = new SpringCodegen();
+        codegen.typeMapping().put("UUID", "String");
+        final Map<String, File> files = generateFiles(codegen, "src/test/resources/3_0/issue_9256.yaml");
+
+        assertFileContains(files.get("RecordsApi.java").toPath(), "@Size(min=36)", "@PathVariable(\"id\") String id");
+        assertFileContains(files.get("Record.java").toPath(), "@Size(min=36)", "public String getId()");
+    }
+
+    @Test
     public void testMultipartCloud() throws IOException {
         final SpringCodegen codegen = new SpringCodegen();
         codegen.setLibrary("spring-cloud");

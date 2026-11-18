@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: UUID validation
+  version: 1.0.0
+paths:
+  /records/{id}:
+    get:
+      operationId: getRecord
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/RecordId'
+      responses:
+        '200':
+          description: A record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+components:
+  schemas:
+    RecordId:
+      type: string
+      format: uuid
+      minLength: 36
+    Record:
+      type: object
+      required: [id]
+      properties:
+        id:
+          $ref: '#/components/schemas/RecordId'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 20
+        relatedIds:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/RecordId'

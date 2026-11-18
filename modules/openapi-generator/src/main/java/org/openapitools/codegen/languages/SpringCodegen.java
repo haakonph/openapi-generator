@@ -815,6 +815,7 @@ public class SpringCodegen extends AbstractJavaCodegen
     @Override
     public void postProcessModelProperty(CodegenModel model, CodegenProperty property) {
         super.postProcessModelProperty(model, property);
+        markJavaUuid(property.dataType, property.vendorExtensions);
 
         if ("null".equals(property.example)) {
             property.example = null;
@@ -875,8 +876,16 @@ public class SpringCodegen extends AbstractJavaCodegen
         this.useOptional = useOptional;
     }
 
+    private void markJavaUuid(String dataType, Map<String, Object> vendorExtensions) {
+        if (UUID.class.getName().equals(importMapping.getOrDefault(dataType, dataType))) {
+            vendorExtensions.put("x-java-uuid", true);
+        }
+    }
+
     @Override
     public void postProcessParameter(CodegenParameter p) {
+        markJavaUuid(p.dataType, p.vendorExtensions);
+
         // we use a custom version of this function to remove the l, d, and f suffixes from Long/Double/Float
         // defaultValues
         // remove the l because our users will use Long.parseLong(String defaultValue)
