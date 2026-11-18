@@ -3241,6 +3241,24 @@ public class SpringCodegenTest {
     }
 
     @Test
+    public void uuidLengthDoesNotGenerateSize_issue9256() throws IOException {
+        Map<String, File> files = generateFromContract("src/test/resources/3_0/spring/issue_9256.yaml", SPRING_BOOT,
+                Map.of(INTERFACE_ONLY, "true", DELEGATE_PATTERN, "true"));
+
+        JavaFileAssert.assertThat(files.get("ItemsApi.java"))
+                .assertMethod("_getItem")
+                .assertParameter("id").hasType("UUID")
+                .assertParameterAnnotations().containsWithName("PathVariable").doesNotContainWithName("Size")
+                .toParameter().toMethod()
+                .assertParameter("code").hasType("String")
+                .assertParameterAnnotations().containsWithNameAndAttributes("Size", Map.of("min", "2", "max", "8"));
+
+        JavaFileAssert.assertThat(files.get("Item.java"))
+                .assertMethod("getUuid").hasReturnType("UUID")
+                .assertMethodAnnotations().containsWithName("NotNull").doesNotContainWithName("Size");
+    }
+
+    @Test
     public void shouldGenerateBeanValidationOnHeaderParams() throws IOException {
         File output = Files.createTempDirectory("test").toFile().getCanonicalFile();
         output.deleteOnExit();

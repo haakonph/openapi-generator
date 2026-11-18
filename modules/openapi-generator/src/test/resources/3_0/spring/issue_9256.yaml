@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: UUID length validation
+  version: 1.0.0
+paths:
+  /items/{id}/{code}:
+    get:
+      operationId: getItem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ItemId'
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 8
+      responses:
+        '200':
+          description: The item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+components:
+  schemas:
+    ItemId:
+      type: string
+      format: uuid
+      minLength: 36
+    Item:
+      type: object
+      required: [uuid]
+      properties:
+        uuid:
+          $ref: '#/components/schemas/ItemId'
