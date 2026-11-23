@@ -1281,6 +1281,53 @@ public class KotlinSpringServerCodegen extends AbstractKotlinCodegen
                     codegenOperation.operationId, library);
         }
 
+        Map<String, Object> extensions = codegenOperation.vendorExtensions;
+        String xAccepts = VendorExtension.X_ACCEPTS.getName();
+        String xContentType = VendorExtension.X_CONTENT_TYPE.getName();
+
+        // A content-type variant is narrowed to one media type on each split axis, which must win over the
+        // x-content-type / x-accepts it inherited from the operation it was split from
+        if (contentTypeVariantMediaType(operation, CodegenConstants.X_CONTENT_TYPE_VARIANT_REQUEST) != null) {
+            extensions.remove(xContentType);
+        }
+        if (contentTypeVariantMediaType(operation, CodegenConstants.X_CONTENT_TYPE_VARIANT_RESPONSE) != null) {
+            extensions.remove(xAccepts);
+        }
+
+        // x-accepts may be authored as a single string or a list; templates iterate it as a list
+        if (extensions.containsKey(xAccepts)) {
+            List<String> accepts = getObjectAsStringList(extensions.get(xAccepts)).stream()
+                    .filter(StringUtils::isNotBlank).collect(Collectors.toList());
+            if (accepts.isEmpty()) {
+                extensions.remove(xAccepts);
+            } else {
+                extensions.put(xAccepts, accepts);
+            }
+        }
+        if (extensions.containsKey(xContentType)
+                && !(extensions.get(xContentType) instanceof String && StringUtils.isNotBlank((String) extensions.get(xContentType)))) {
+            LOGGER.warn("x-content-type on operation '{}' must be a single media type string; ignoring {}",
+                    codegenOperation.operationId, extensions.get(xContentType));
+            extensions.remove(xContentType);
+        }
+
+        // Like the Java clients, the declarative client sends the first consumes media type as Content-Type
+        // and all produces media types as Accept, unless the spec sets x-content-type / x-accepts.
+        // Content-Type cannot be a wildcard such as image/*, so those consumes entries are skipped.
+        if (SPRING_DECLARATIVE_HTTP_INTERFACE_LIBRARY.equals(library)) {
+            if (codegenOperation.hasConsumes) {
+                codegenOperation.consumes.stream()
+                        .map(c -> c.get("rawMediaType"))
+                        .filter(m -> !m.split(";", 2)[0].contains("*"))
+                        .findFirst()
+                        .ifPresent(m -> extensions.putIfAbsent(xContentType, m));
+            }
+            if (codegenOperation.hasProduces) {
+                extensions.putIfAbsent(xAccepts,
+                        codegenOperation.produces.stream().map(p -> p.get("rawMediaType")).collect(Collectors.toList()));
+            }
+        }
+
         if (isPageableSupported()
                 && Boolean.TRUE.equals(SpringPageableScanUtils.getXSpringPaginated(operation))) {
             // add Pageable import only if x-spring-paginated explicitly used AND the library supports it
@@ -1513,6 +1560,14 @@ public class KotlinSpringServerCodegen extends AbstractKotlinCodegen
         return String.join(" ", annotations);
     }
 
+    @Override
+    protected void updateParameterForString(CodegenParameter codegenParameter, Schema parameterSchema) {
+        super.updateParameterForString(codegenParameter, parameterSchema);
+        if (ModelUtils.isURISchema(parameterSchema)) {
+            codegenParameter.isUri = true;
+        }
+    }
+
     /**
      * Bean validation for the element type of a list/set, following the rules of
      * {@code AbstractJavaCodegen#getBeanValidation} and rendered in the format of {@code beanValidationCore.mustache}.
@@ -1565,7 +1620,10 @@ public class KotlinSpringServerCodegen extends AbstractKotlinCodegen
     }
 
     private String getItemsStringBeanValidation(Schema<?> items) {
-        if (ModelUtils.shouldIgnoreBeanValidation(items)) {
+        if (ModelUtils.shouldIgnoreBeanValidation(items)
+                || ModelUtils.isDateSchema(items)
+                || ModelUtils.isDateTimeSchema(items)
+                || isJavaUuid(getTypeDeclaration(items))) {
             return "";
         }
         List<String> annotations = new ArrayList<>();
@@ -1632,9 +1690,13 @@ public class KotlinSpringServerCodegen extends AbstractKotlinCodegen
     @Override
     public CodegenProperty fromProperty(String name, Schema p, boolean required, boolean schemaIsFromAdditionalProperties) {
         CodegenProperty property = super.fromProperty(name, p, required, schemaIsFromAdditionalProperties);
+        if (property == null) {
+            return null;
+        }
+        markJavaUuid(property.dataType, property.vendorExtensions);
         // Model templates render arrays of inline enums as `{{baseType}}<{{classname}}.{{nameInPascalCase}}>`
         // instead of `{{dataType}}`, so expose the element annotations separately for that branch.
-        if (property != null && property.isArray && property.isEnum && p != null) {
+        if (property.isArray && property.isEnum && p != null) {
             Schema<?> schema = ModelUtils.getReferencedSchema(openAPI, p);
             Schema<?> items = ModelUtils.getSchemaItems(schema);
             if (items != null) {
@@ -1645,6 +1707,23 @@ public class KotlinSpringServerCodegen extends AbstractKotlinCodegen
             }
         }
         return property;
+    }
+
+    @Override
+    public void postProcessParameter(CodegenParameter parameter) {
+        super.postProcessParameter(parameter);
+        markJavaUuid(parameter.dataType, parameter.vendorExtensions);
+    }
+
+    private void markJavaUuid(String dataType, Map<String, Object> vendorExtensions) {
+        // A UUID schema mapped to kotlin.String still supports string validation.
+        if (isJavaUuid(dataType)) {
+            vendorExtensions.put("x-is-java-uuid", true);
+        }
+    }
+
+    private boolean isJavaUuid(String dataType) {
+        return UUID.class.getName().equals(importMapping.getOrDefault(dataType, dataType));
     }
 
     @Override
